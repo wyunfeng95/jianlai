@@ -1,0 +1,53 @@
+const {chromium}=require('playwright');
+const http=require('http'),fs=require('fs'),path=require('path');
+const {pickBody,sse}=require('./mock');
+const html=fs.readFileSync(path.join(__dirname,'..','index.html'));
+const srv=http.createServer((q,r)=>{r.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});r.end(html);});
+(async()=>{
+srv.listen(8944);
+const br=await chromium.launch({executablePath:process.env.PW_CHROME});
+// iPhone 15 Pro 尺寸
+const ctx=await br.newContext({viewport:{width:393,height:852},deviceScaleFactor:2,isMobile:true,hasTouch:true});
+const page=await ctx.newPage();
+const errs=[]; page.on('pageerror',e=>errs.push(String(e)));
+await page.route('**/chat/completions',async route=>{
+  const b=JSON.parse(route.request().postData());
+  await route.fulfill({status:200,headers:{'Content-Type':'text/event-stream'},body:sse(pickBody(b.messages[b.messages.length-1].content))});
+});
+await page.addInitScript(()=>{localStorage.setItem('wuxia_cfg',JSON.stringify({base:'https://api.deepseek.com',key:'sk-test',model:'m',think:false}));});
+await page.goto('http://localhost:8944/');
+await page.waitForTimeout(300);
+await page.screenshot({path:'/tmp/t/shot_create.png',fullPage:true});
+await page.click('#crAvatar .cell:nth-child(9)');
+await page.click('#crStart');
+await page.waitForSelector('#choices .opt',{timeout:15000});
+await page.screenshot({path:'/tmp/t/shot_topbar.png',clip:{x:0,y:0,width:393,height:120}});
+await page.click('#panelToggle');
+await page.waitForTimeout(500);
+// 面板：滚到技艺
+await page.evaluate(()=>{ const el=document.getElementById('pSkills'); el.scrollIntoView({block:'center'}); });
+await page.waitForTimeout(400);
+await page.screenshot({path:'/tmp/t/shot_skills.png'});
+await page.evaluate(()=>{ document.querySelector('.tabpane.on').scrollTop=0; });
+await page.waitForTimeout(300);
+await page.screenshot({path:'/tmp/t/shot_paneltop.png'});
+await page.click('#tabs button[data-tab="world"]');
+await page.waitForTimeout(500);
+await page.screenshot({path:'/tmp/t/shot_world.png'});
+await page.click('#tabs button[data-tab="bag"]');
+await page.waitForTimeout(400);
+await page.screenshot({path:'/tmp/t/shot_bag.png'});
+await page.click('#tabs button[data-tab="people"]');
+await page.waitForTimeout(600);
+await page.screenshot({path:'/tmp/t/shot_people.png'});
+await page.click('#npcList .npc >> nth=0');
+await page.waitForTimeout(400);
+await page.screenshot({path:'/tmp/t/shot_npc.png'});
+await page.click('#npcTalkBtn');
+await page.waitForTimeout(600);
+await page.screenshot({path:'/tmp/t/shot_convo.png'});
+await page.keyboard.press('Escape');
+console.log('skills raw:', JSON.stringify(await page.evaluate(()=>S.player.skills)));
+console.log('errors:', errs);
+await br.close(); srv.close();
+})();
